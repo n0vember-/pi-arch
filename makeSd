@@ -1,0 +1,19 @@
+#!/bin/bash
+
+sdCard=$1
+
+sudo parted -s /dev/${sdCard} mklabel msdos
+sudo parted -s /dev/${sdCard} mkpart primary fat32 2048s 100M
+sudo parted -s /dev/${sdCard} mkpart primary 100M 100%
+sudo parted -s /dev/${sdCard} set 1 boot on
+sudo mkfs.vfat /dev/${sdCard}1
+sudo mkfs.ext4 /dev/${sdCard}2
+mkdir -p boot root
+sudo mount /dev/${sdCard}1 boot
+sudo mount /dev/${sdCard}2 root
+curl -sLO http://archlinuxarm.org/os/ArchLinuxARM-rpi-2-latest.tar.gz
+sudo bsdtar -xpf ArchLinuxARM-rpi-2-latest.tar.gz -C root
+sudo mv root/boot/* boot
+sync
+sudo umount boot root
+
