@@ -1,19 +1,81 @@
 #!/bin/bash
 
+noDownload=0
+verboseMode=1
+imageName="ArchLinuxARM-rpi-2-latest.tar.gz"
+
+usage() {
+  echo "$@" >&2
+  echo "usage: $(basename $0) [-h] [-q] [-n] [-i image_file] device
+  -h = displays this help
+  -q = quiet
+  -n = do not download image
+  -i = use specified image instead of default (${imageName})
+       this implies -n
+  device = device to prepare (sdb, sdc... do not specify /dev)" >&2
+  exit
+}
+
+msg() {
+  [ $verboseMode -eq 1 ] && echo "$@"
+}
+
+while getopts nqi:h name
+do
+  case $name in
+    n)
+      noDownload=1
+      ;;
+    q)
+      verboseMode=0
+      ;;
+    i)
+      imageName=$OPTARG
+      noDownload=1
+      ;;
+    h)
+      usage
+      ;;
+  esac
+done
+
+shift $(($OPTIND-1))
+
+if [ $# -ne 1 ] ; then
+  usage "device name is mandatory"
+fi
+
 sdCard=$1
 
+if [ ! -b /dev/$sdCard ] ; then
+  usage "/dev/$sdCard is not a block device"
+fi
+
+msg "device partitionning"
 sudo parted -s /dev/${sdCard} mklabel msdos
 sudo parted -s /dev/${sdCard} mkpart primary fat32 2048s 100M
 sudo parted -s /dev/${sdCard} mkpart primary 100M 100%
 sudo parted -s /dev/${sdCard} set 1 boot on
+
+msg "format"
 sudo mkfs.vfat /dev/${sdCard}1
 sudo mkfs.ext4 /dev/${sdCard}2
+
+msg "temporary mount"
 mkdir -p boot root
 sudo mount /dev/${sdCard}1 boot
 sudo mount /dev/${sdCard}2 root
-curl -sLO http://archlinuxarm.org/os/ArchLinuxARM-rpi-2-latest.tar.gz
-sudo bsdtar -xpf ArchLinuxARM-rpi-2-latest.tar.gz -C root
+
+if [ $noDownload -eq 0 ] ; then
+  msg "download"
+  curl -sLO http://archlinuxarm.org/os/ArchLinuxARM-rpi-2-latest.tar.gz
+fi
+
+msg "uncompressing"
+sudo bsdtar -xpf $imageName -C root
 sudo mv root/boot/* boot
 sync
+
+msg "unmount"
 sudo umount boot root
 
