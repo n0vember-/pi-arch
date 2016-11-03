@@ -2,16 +2,27 @@
 
 noDownload=0
 verboseMode=1
+dryRun=
 imageName="ArchLinuxARM-rpi-2-latest.tar.gz"
+
+umountDev() {
+  sdCard=$1
+  sleep 1
+  mount | grep /dev/${sdCard} | sed "s/ .*//" | while read device
+  do
+    $dryRun sudo umount $device
+  done
+}
 
 usage() {
   echo "$@" >&2
-  echo "usage: $(basename $0) [-h] [-q] [-n] [-i image_file] device
+  echo "usage: $(basename $0) [-h] [-q] [-n] [-i image_file] [-d] device
   -h = displays this help
   -q = quiet
   -n = do not download image
   -i = use specified image instead of default (${imageName})
        this implies -n
+  -d = dry run, only give commands
   device = device to prepare (sdb, sdc... do not specify /dev)" >&2
   exit
 }
@@ -20,7 +31,7 @@ msg() {
   [ $verboseMode -eq 1 ] && echo "$@"
 }
 
-while getopts nqi:h name
+while getopts nqi:hd name
 do
   case $name in
     n)
@@ -28,6 +39,9 @@ do
       ;;
     q)
       verboseMode=0
+      ;;
+    d)
+      dryRun=echo
       ;;
     i)
       imageName=$OPTARG
@@ -51,31 +65,56 @@ if [ ! -b /dev/$sdCard ] ; then
   usage "/dev/$sdCard is not a block device"
 fi
 
+umountDev $sdCard
+
 msg "device partitionning"
-sudo parted -s /dev/${sdCard} mklabel msdos
-sudo parted -s /dev/${sdCard} mkpart primary fat32 2048s 100M
-sudo parted -s /dev/${sdCard} mkpart primary 100M 100%
-sudo parted -s /dev/${sdCard} set 1 boot on
+$dryRun sudo parted -s /dev/${sdCard} mklabel msdos
+$dryRun sudo parted -s /dev/${sdCard} mkpart primary fat32 2048s 100M
+$dryRun sudo parted -s /dev/${sdCard} mkpart primary 100M 100%
+$dryRun sudo parted -s /dev/${sdCard} set 1 boot on
+
+[ -b /dev/${sdCard}1 ] && sdCard1=${sdCard}1
+[ -b /dev/${sdCard}2 ] && sdCard2=${sdCard}2
+[ -b /dev/${sdCard}p1 ] && sdCard1=${sdCard}p1
+[ -b /dev/${sdCard}p2 ] && sdCard2=${sdCard}p2
+[ -z $sdCard1 -o -z $sdCard2 ] && echo partitions not found && exit 1
+
+umountDev $sdCard
 
 msg "format"
-sudo mkfs.vfat /dev/${sdCard}1
-sudo mkfs.ext4 /dev/${sdCard}2
+$dryRun sudo mkfs.vfat /dev/${sdCard1}
+$dryRun sudo mkfs.ext4 /dev/${sdCard2}
+
+umountDev $sdCard
 
 msg "temporary mount"
-mkdir -p boot root
-sudo mount /dev/${sdCard}1 boot
-sudo mount /dev/${sdCard}2 root
+$dryRun mkdir -p boot root
+$dryRun sudo mount /dev/${sdCard1} boot
+$dryRun sudo mount /dev/${sdCard2} root
 
 if [ $noDownload -eq 0 ] ; then
   msg "download"
-  curl -sLO http://archlinuxarm.org/os/ArchLinuxARM-rpi-2-latest.tar.gz
+  $dryRun curl -sLO http://os.archlinuxarm.org/os/ArchLinuxARM-rpi-2-latest.tar.gz.md5
+  md5sum -c ArchLinuxARM-rpi-2-latest.tar.gz.md5 && msg "download not needed (md5 OK)" || $dryRun curl -sLO http://os.archlinuxarm.org/os/ArchLinuxARM-rpi-2-latest.tar.gz
 fi
 
 msg "uncompressing"
-sudo bsdtar -xpf $imageName -C root
-sudo mv root/boot/* boot
-sync
+$dryRun sudo bsdtar -xpf $imageName -C root
+$dryRun sudo mv root/boot/* boot
+$dryRun sync
+
+msg "activate wifi"
+$dryRun sudo cp /etc/wpa_supplicant/wpa_supplicant.conf root/etc/wpa_supplicant/wpa_supplicant-wlan0.conf
+$dryRun sudo ln -s /usr/lib/systemd/system/wpa_supplicant@.service root/etc/systemd/system/multi-user.target.wants/wpa_supplicant@wlan0.service
+$dryRun sudo cp root/etc/systemd/network/eth0.network root/etc/systemd/network/wlan0.network
+$dryRun sudo sed -i "s/eth0/wlan0/g" root/etc/systemd/network/wlan0.network
+
+msg "allow ssh"
+$dryRun sudo mkdir -p root/root/.ssh
+$dryRun cat ~/.ssh/*.pub | sudo su -c "cat > root/root/.ssh/authorized_keys"
+$dryRun sudo sed -i -r "s/^#(PermitRootLogin)/\1/" root/etc/ssh/sshd_config
 
 msg "unmount"
-sudo umount boot root
+$dryRun sync
+$dryRun sudo umount boot root
 
