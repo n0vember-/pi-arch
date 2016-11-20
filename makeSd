@@ -5,6 +5,9 @@ verboseMode=1
 dryRun=
 imageName="ArchLinuxARM-rpi-2-latest.tar.gz"
 
+pv_bin="cat"
+which pv >/dev/null 2>&1 && pv_bin="$(which pv)"
+
 umountDev() {
   sdCard=$1
   sleep 1
@@ -31,6 +34,7 @@ msg() {
   [ $verboseMode -eq 1 ] && echo "$@"
 }
 
+dryRun="eval"
 while getopts nqi:hd name
 do
   case $name in
@@ -68,10 +72,10 @@ fi
 umountDev $sdCard
 
 msg "device partitionning"
-$dryRun sudo parted -s /dev/${sdCard} mklabel msdos
-$dryRun sudo parted -s /dev/${sdCard} mkpart primary fat32 2048s 100M
-$dryRun sudo parted -s /dev/${sdCard} mkpart primary 100M 100%
-$dryRun sudo parted -s /dev/${sdCard} set 1 boot on
+$dryRun "sudo parted -s /dev/${sdCard} mklabel msdos"
+$dryRun "sudo parted -s /dev/${sdCard} mkpart primary fat32 2048s 100M"
+$dryRun "sudo parted -s /dev/${sdCard} mkpart primary 100M 100%"
+$dryRun "sudo parted -s /dev/${sdCard} set 1 boot on"
 
 [ -b /dev/${sdCard}1 ] && sdCard1=${sdCard}1
 [ -b /dev/${sdCard}2 ] && sdCard2=${sdCard}2
@@ -82,39 +86,39 @@ $dryRun sudo parted -s /dev/${sdCard} set 1 boot on
 umountDev $sdCard
 
 msg "format"
-$dryRun sudo mkfs.vfat /dev/${sdCard1}
-$dryRun sudo mkfs.ext4 /dev/${sdCard2}
+$dryRun "sudo mkfs.vfat /dev/${sdCard1}"
+$dryRun "sudo mkfs.ext4 /dev/${sdCard2}"
 
 umountDev $sdCard
 
 msg "temporary mount"
-$dryRun mkdir -p boot root
-$dryRun sudo mount /dev/${sdCard1} boot
-$dryRun sudo mount /dev/${sdCard2} root
+$dryRun "mkdir -p boot root"
+$dryRun "sudo mount /dev/${sdCard1} boot"
+$dryRun "sudo mount /dev/${sdCard2} root"
 
 if [ $noDownload -eq 0 ] ; then
   msg "download"
-  $dryRun curl -sLO http://os.archlinuxarm.org/os/ArchLinuxARM-rpi-2-latest.tar.gz.md5
-  md5sum -c ArchLinuxARM-rpi-2-latest.tar.gz.md5 && msg "download not needed (md5 OK)" || $dryRun curl -sLO http://os.archlinuxarm.org/os/ArchLinuxARM-rpi-2-latest.tar.gz
+  $dryRun "curl -sLO http://os.archlinuxarm.org/os/ArchLinuxARM-rpi-2-latest.tar.gz.md5"
+  md5sum -c ArchLinuxARM-rpi-2-latest.tar.gz.md5 && msg "download not needed (md5 OK)" || $dryRun "curl -sLO http://os.archlinuxarm.org/os/ArchLinuxARM-rpi-2-latest.tar.gz"
 fi
 
 msg "uncompressing"
-$dryRun sudo bsdtar -xpf $imageName -C root
-$dryRun sudo mv root/boot/* boot
-$dryRun sync
+$dryRun "${pv_bin} $imageName | sudo bsdtar -xpf $imageName -C root"
+$dryRun "sudo mv root/boot/* boot"
+$dryRun "sync"
 
 msg "activate wifi"
-$dryRun sudo cp /etc/wpa_supplicant/wpa_supplicant.conf root/etc/wpa_supplicant/wpa_supplicant-wlan0.conf
-$dryRun sudo ln -s /usr/lib/systemd/system/wpa_supplicant@.service root/etc/systemd/system/multi-user.target.wants/wpa_supplicant@wlan0.service
-$dryRun sudo cp root/etc/systemd/network/eth0.network root/etc/systemd/network/wlan0.network
-$dryRun sudo sed -i "s/eth0/wlan0/g" root/etc/systemd/network/wlan0.network
+$dryRun "sudo cp /etc/wpa_supplicant/wpa_supplicant.conf root/etc/wpa_supplicant/wpa_supplicant-wlan0.conf"
+$dryRun "sudo ln -s /usr/lib/systemd/system/wpa_supplicant@.service root/etc/systemd/system/multi-user.target.wants/wpa_supplicant@wlan0.service"
+$dryRun "sudo cp root/etc/systemd/network/eth0.network root/etc/systemd/network/wlan0.network"
+$dryRun "sudo sed -i 's/eth0/wlan0/g' root/etc/systemd/network/wlan0.network"
 
 msg "allow ssh"
-$dryRun sudo mkdir -p root/root/.ssh
-$dryRun cat ~/.ssh/*.pub | sudo su -c "cat > root/root/.ssh/authorized_keys"
-$dryRun sudo sed -i -r "s/^#(PermitRootLogin)/\1/" root/etc/ssh/sshd_config
+$dryRun "sudo mkdir -p root/root/.ssh"
+$dryRun "cat ~/.ssh/*.pub | sudo su -c 'cat > root/root/.ssh/authorized_keys'"
+$dryRun "sudo sed -i -r 's/^#(PermitRootLogin)/\1/' root/etc/ssh/sshd_config"
 
 msg "unmount"
-$dryRun sync
-$dryRun sudo umount boot root
+$dryRun "sync"
+$dryRun "sudo umount boot root"
 
