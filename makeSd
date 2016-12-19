@@ -4,6 +4,7 @@ noDownload=0
 verboseMode=1
 dryRun=
 imageName="ArchLinuxARM-rpi-2-latest.tar.gz"
+raspbian=0
 
 pv_bin="cat"
 which pv >/dev/null 2>&1 && pv_bin="$(which pv)"
@@ -19,12 +20,13 @@ umountDev() {
 
 usage() {
   echo "$@" >&2
-  echo "usage: $(basename $0) [-h] [-q] [-n] [-i image_file] [-d] device
+  echo "usage: $(basename $0) [-h] [-q] [-n] [-i image_file] [-r] [-d] device
   -h = displays this help
   -q = quiet
   -n = do not download image
   -i = use specified image instead of default (${imageName})
        this implies -n
+  -r = use raspbian instead of arch
   -d = dry run, only give commands
   device = device to prepare (sdb, sdc... do not specify /dev)" >&2
   exit
@@ -51,6 +53,9 @@ do
       imageName=$OPTARG
       noDownload=1
       ;;
+    r)
+      raspbian=1
+      raspbian_url="https://downloads.raspberrypi.org/raspbian_lite_latest"
     h)
       usage
       ;;
@@ -70,6 +75,19 @@ if [ ! -b /dev/$sdCard ] ; then
 fi
 
 umountDev $sdCard
+
+if [ $raspbian -eq 1 ] ; then
+  msg "download"
+  [ -f raspbian.zip -o -f raspbian.img ] && "download not needed" || $dryRun "curl -o raspbian.zip -sL $raspbianUrl"
+  msg "uncompressing"
+  $dryRun "unzip raspbian.zip"
+  $dryRun "rm raspbian.zip"
+  $dryRun "mv *raspbian*img rasbian.img"
+  msg "writing"
+  $dryRun "sudo bash -c \"${pv_bin} -pret < raspbian.img > ${sdCard}\""
+  msg "done"
+  exit 0
+fi
 
 msg "device partitionning"
 $dryRun "sudo parted -s /dev/${sdCard} mklabel msdos"
@@ -122,3 +140,4 @@ msg "unmount"
 $dryRun "sync"
 $dryRun "sudo umount boot root"
 
+msg "done"
